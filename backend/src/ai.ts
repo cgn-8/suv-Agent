@@ -43,7 +43,12 @@ async function searchFirecrawl(query: string, apiKey: string): Promise<SearchRes
     clearTimeout(id);
     if (!resp.ok) { console.warn('[Firecrawl] Non-OK:', resp.status); return []; }
     const data: any = await resp.json();
-    const results = (data.data || []).map((r: any) => ({ title: r.title || r.metadata?.title || 'Resource', url: r.url, content: r.description || r.markdown?.substring(0, 300), source: 'Firecrawl' }));
+    const results = (data.data || []).map((r: any) => ({
+      title: r.title || r.metadata?.title || 'Resource',
+      url: r.url,
+      content: r.description || r.markdown?.substring(0, 300),
+      source: 'Firecrawl'
+    }));
     console.log(`[Firecrawl] Returned ${results.length} results.`);
     return results;
   } catch (e: any) { console.warn('[Firecrawl] Error:', e.message); return []; }
@@ -63,16 +68,21 @@ async function searchApify(query: string, apiKey: string): Promise<SearchResult[
     if (!resp.ok) { console.warn('[Apify] Non-OK:', resp.status); return []; }
     const data: any = await resp.json();
     if (!Array.isArray(data)) return [];
-    const results = data.map((item: any) => ({ title: item.title || 'Apify Resource', url: item.url || '', content: item.text?.substring(0, 300), source: 'Apify' }));
+    const results = data.map((item: any) => ({
+      title: item.title || 'Apify Resource',
+      url: item.url || '',
+      content: item.text?.substring(0, 300),
+      source: 'Apify'
+    }));
     console.log(`[Apify] Returned ${results.length} results.`);
     return results;
   } catch (e: any) { console.warn('[Apify] Error:', e.message); return []; }
 }
 
 async function runMultiScraper(query: string): Promise<SearchResult[]> {
-  const tavilyKey = process.env.TAVILY_API_KEY?.trim();
+  const tavilyKey    = process.env.TAVILY_API_KEY?.trim();
   const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
-  const apifyKey = (process.env.APIFY_API_KEY || process.env.APIFY_TOKEN)?.trim();
+  const apifyKey     = (process.env.APIFY_API_KEY || process.env.APIFY_TOKEN)?.trim();
 
   const tasks: Promise<SearchResult[]>[] = [];
   if (tavilyKey)    tasks.push(searchTavily(query, tavilyKey));
@@ -80,7 +90,7 @@ async function runMultiScraper(query: string): Promise<SearchResult[]> {
   if (apifyKey)     tasks.push(searchApify(query, apifyKey));
 
   if (tasks.length === 0) {
-    console.log('[Multi-Scraper] No API keys found — running without live scraped data.');
+    console.log('[Multi-Scraper] No scraper API keys found.');
     return [];
   }
 
@@ -126,20 +136,65 @@ function extractJSON(text: string): any {
   let s = text.trim();
   s = s.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
   const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
+  const end   = s.lastIndexOf('}');
   if (start !== -1 && end > start) s = s.substring(start, end + 1);
   return JSON.parse(s);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// GEMINI MODEL FALLBACK CHAIN
-// Tries models in order until one responds. Handles 404 (unavailable) and
-// 429 (quota exhausted) gracefully by moving to the next model.
+// OPENROUTER CALLER
+// OpenAI-compatible API — works with any model hosted on openrouter.ai
+// Recommended fast free model: meta-llama/llama-3.3-70b-instruct:free
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function callOpenRouter(prompt: string, apiKey: string): Promise<string> {
+  // Fast free models in priority order
+  const model = process.env.OPENROUTER_MODEL?.trim() || 'meta-llama/llama-3.3-70b-instruct:free';
+
+  console.log(`[OpenRouter] Calling model: ${model}`);
+
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 30000);
+
+  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://suv-agent.vercel.app',
+      'X-Title': 'suv++ Agent'
+    },
+    signal: controller.signal,
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 3000,
+      temperature: 0.7
+    })
+  });
+  clearTimeout(id);
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`OpenRouter HTTP ${resp.status}: ${errText.substring(0, 200)}`);
+  }
+
+  const data: any = await resp.json();
+  const text = data.choices?.[0]?.message?.content?.trim();
+
+  if (!text) throw new Error('OpenRouter returned empty response.');
+
+  console.log(`[OpenRouter] ✅ Success with model: ${model}`);
+  return text;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GEMINI FALLBACK CHAIN
+// Tries multiple Gemini models in order when OpenRouter is unavailable.
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function callGemini(genAI: GoogleGenerativeAI, prompt: string): Promise<string> {
-  // If user set GEMINI_MODEL explicitly, try that first, then fallbacks
-  const userModel = process.env.GEMINI_MODEL?.trim();
+  const userModel    = process.env.GEMINI_MODEL?.trim();
   const MODEL_CHAIN: string[] = userModel
     ? [userModel, 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash']
     : ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash'];
@@ -158,28 +213,46 @@ async function callGemini(genAI: GoogleGenerativeAI, prompt: string): Promise<st
     } catch (err: any) {
       const msg: string = err?.message || '';
       const isRecoverable =
-        msg.includes('404') ||
-        msg.includes('429') ||
-        msg.includes('quota') ||
-        msg.includes('no longer available') ||
-        msg.includes('Too Many Requests') ||
-        msg.includes('not found') ||
-        msg.includes('Not Found');
+        msg.includes('404') || msg.includes('429') || msg.includes('503') ||
+        msg.includes('quota') || msg.includes('no longer available') ||
+        msg.includes('Too Many Requests') || msg.includes('Not Found') ||
+        msg.includes('not found') || msg.includes('Service Unavailable');
 
       if (isRecoverable) {
         console.warn(`[Gemini] ⚠️  ${modelName} skipped: ${msg.substring(0, 120)}`);
         continue;
       }
-      // Unexpected error (auth, network, etc.) — rethrow immediately
       throw err;
     }
   }
 
   throw new Error(
-    'All Gemini models are quota-exhausted or unavailable for this API key.\n' +
-    'Tried: ' + tried.join(', ') + '\n' +
-    'Fix: Enable billing at https://aistudio.google.com/apikey or create a new API key.'
+    `All Gemini models exhausted. Tried: ${tried.join(', ')}. ` +
+    'Enable billing at https://aistudio.google.com/apikey'
   );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MASTER AI CALLER  — OpenRouter first, Gemini as fallback
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function callAI(genAI: GoogleGenerativeAI, prompt: string): Promise<string> {
+  const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
+
+  // 1. Try OpenRouter first (fast, generous free tier, no daily quota)
+  if (openRouterKey) {
+    try {
+      const text = await callOpenRouter(prompt, openRouterKey);
+      return text;
+    } catch (err: any) {
+      console.warn(`[OpenRouter] Failed: ${err.message?.substring(0, 150)} — falling back to Gemini`);
+    }
+  } else {
+    console.log('[AI] No OPENROUTER_API_KEY found — using Gemini directly.');
+  }
+
+  // 2. Fallback: Gemini model chain
+  return callGemini(genAI, prompt);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -218,7 +291,7 @@ Give a warm, energetic welcome (2–3 sentences). Then highlight 5 domains they 
 🤖 AI & Machine Learning, 🛡️ Cybersecurity, 🌐 Full-Stack Web Dev, 📊 Data Science, ⚙️ DevOps/Cloud.
 Invite them to either ask "what is X" for a deep explanation, or "I want to learn X" for a personalized roadmap.`;
 
-    const text = await callGemini(genAI, prompt);
+    const text = await callAI(genAI, prompt);
     return { assistantResponse: text, learningPath: null };
   }
 
@@ -233,7 +306,7 @@ ${profileSummary}
 Conversation History:
 ${historyContext}
 
-Deliver a thorough, senior-engineer-level explanation structured as follows:
+Deliver a thorough, senior-engineer-level explanation structured exactly as follows:
 1. **TL;DR** — One sharp sentence defining the concept.
 2. ## What It Is — Clear definition with a real-world analogy.
 3. ## How It Works — Step-by-step breakdown (use bullets or numbered list).
@@ -241,9 +314,9 @@ Deliver a thorough, senior-engineer-level explanation structured as follows:
 5. ## Key Terms — Brief definitions of 3–5 important related concepts.
 6. ## Want to Go Deeper? — Invite them to type "I want to learn [topic]" for a full personalized roadmap with courses, YouTube videos, and hands-on projects.
 
-Use **bold** for key terms. Use \`code snippets\` for any code or commands. Tailor depth to: ${profile?.current_skill_level || 'Beginner'}.`;
+Use **bold** for key terms. Use \`code snippets\` where relevant. Tailor depth to skill level: ${profile?.current_skill_level || 'Beginner'}.`;
 
-    const text = await callGemini(genAI, prompt);
+    const text = await callAI(genAI, prompt);
     return { assistantResponse: text, learningPath: null };
   }
 
@@ -264,20 +337,20 @@ ${historyContext}
 
 User Request: "${message}"
 
-Live Scraped Resources from Tavily / Firecrawl / Apify (use the best real URLs from these):
+Live Scraped Resources (use the best real URLs from these):
 ${JSON.stringify(liveResults.slice(0, 10), null, 2)}
 
 STRICT RULES:
 1. "title": Short and impactful, max 8 words. Do NOT echo the user query verbatim.
 2. "phases": Exactly 3–4 sequential, named phases (e.g. "Phase 1: Foundations & Setup").
 3. Each phase must have 2–4 resources:
-   - Use scraped URLs when they are high quality; otherwise use known good URLs (YouTube, freeCodeCamp, official docs, GitHub).
+   - Use scraped URLs when high quality, otherwise use known good URLs (YouTube, freeCodeCamp, official docs).
    - "type": one of "Video" | "Course" | "Article" | "Project" | "Documentation"
-   - "reason": 1–2 sentences explaining WHY this specific resource fits this learner's goal and level.
+   - "reason": 1–2 sentences on WHY this fits this learner's exact goal and skill level.
 4. "intro_message": 2–3 sentence markdown summary of what they will achieve.
-5. "next_action": The exact first action they should do TODAY (be specific).
+5. "next_action": The exact first action they should do TODAY (be very specific).
 
-Respond ONLY with a raw JSON object. No markdown fences, no extra text before or after.
+Respond ONLY with a raw JSON object. No markdown fences, no extra text.
 
 {
   "intro_message": "...",
@@ -300,8 +373,8 @@ Respond ONLY with a raw JSON object. No markdown fences, no extra text before or
   let introMessage = '';
 
   try {
-    const raw = await callGemini(genAI, roadmapPrompt);
-    console.log('[Roadmap] Gemini raw response preview:', raw.substring(0, 200));
+    const raw = await callAI(genAI, roadmapPrompt);
+    console.log('[Roadmap] AI response preview:', raw.substring(0, 200));
     const parsed = extractJSON(raw);
 
     learningPath = {
@@ -314,9 +387,8 @@ Respond ONLY with a raw JSON object. No markdown fences, no extra text before or
     };
     introMessage = parsed.intro_message || `Here is your personalized roadmap: **${parsed.title}**. Let's get started!`;
   } catch (err: any) {
-    console.error('[Roadmap] Gemini/JSON error — using scraped fallback. Error:', err.message);
+    console.error('[Roadmap] AI/JSON error — using scraped fallback. Error:', err.message);
 
-    // Graceful fallback using raw scraped data only
     const phases: any[] = [];
     if (liveResults.length > 0) {
       phases.push({
@@ -325,7 +397,7 @@ Respond ONLY with a raw JSON object. No markdown fences, no extra text before or
           title: r.title,
           url: r.url,
           type: 'Course',
-          reason: `Live resource from ${r.source} — directly relevant to your request.`
+          reason: `Live resource from ${r.source} — directly relevant to your goal.`
         }))
       });
       if (liveResults.length > 3) {
@@ -335,7 +407,7 @@ Respond ONLY with a raw JSON object. No markdown fences, no extra text before or
             title: r.title,
             url: r.url,
             type: 'Video',
-            reason: `Hands-on tutorial or article found live via ${r.source}.`
+            reason: `Hands-on tutorial found live via ${r.source}.`
           }))
         });
       }
@@ -347,7 +419,7 @@ Respond ONLY with a raw JSON object. No markdown fences, no extra text before or
       level: profile?.current_skill_level || 'Beginner',
       estimated_duration: '6–8 Weeks',
       phases,
-      next_action: 'Start Phase 1 today — spend 30 minutes on the first resource.'
+      next_action: 'Start Phase 1 today — spend 30 focused minutes on the first resource.'
     };
     introMessage = `I've built your personalized roadmap for **"${message}"** using live web resources. Let's go! 🚀`;
   }

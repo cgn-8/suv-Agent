@@ -13,11 +13,11 @@ export const metadata: Metadata = {
   description: "AI-Powered Personalized Learning Path Recommender",
   icons: {
     icon: [
-      { url: "/logo.png", type: "image/png" },
+      { url: "/icon.png", type: "image/png" },
       { url: "/favicon.ico" }
     ],
-    shortcut: "/logo.png",
-    apple: "/logo.png",
+    shortcut: "/icon.png",
+    apple: "/apple-icon.png",
   },
 };
 
@@ -32,26 +32,23 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="icon" href="/logo.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/logo.png" />
-        <link rel="shortcut icon" href="/logo.png" type="image/png" />
+        <link rel="icon" href="/icon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/apple-icon.png" />
       </head>
       <body className={`${inter.className} bg-[#FAF9F9] text-gray-900 min-h-screen flex flex-col antialiased selection:bg-rose-500 selection:text-white`}>
         {/* Floating Glassmorphic Top Navbar */}
         <header className="sticky top-0 z-50 w-full border-b border-rose-100/70 bg-white/85 backdrop-blur-xl shadow-xs">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
-            {/* Brand Logo with Custom SUV Artwork */}
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="h-10 px-2.5 py-1 rounded-xl bg-white border border-rose-100 shadow-xs flex items-center justify-center group-hover:scale-105 transition">
-                <Image
-                  src="/logo.png"
-                  alt="SUV Logo"
-                  width={50}
-                  height={26}
-                  className="object-contain"
-                  priority
-                />
-              </div>
+            {/* Seamless Brand Logo without white box wrapper */}
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <Image
+                src="/logo.png"
+                alt="SUV Logo"
+                width={70}
+                height={35}
+                className="h-8 w-auto object-contain transition-transform group-hover:scale-105"
+                priority
+              />
               <span className="font-black text-xl tracking-tight text-gray-950">
                 suv<span className="text-rose-600">++</span> Agent
               </span>

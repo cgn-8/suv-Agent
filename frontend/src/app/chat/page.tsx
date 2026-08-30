@@ -198,8 +198,8 @@ export default function Chat() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4 py-2">
-      {/* Header bar with Official SUV Logo */}
-      <div className="flex justify-between items-center bg-white px-6 py-3.5 rounded-2xl border border-rose-100/80 shadow-xs">
+      {/* Header bar with Seamless SUV Logo */}
+      <div className="flex justify-between items-center bg-white px-6 py-3 rounded-2xl border border-rose-100/80 shadow-xs">
         <Link
           href="/dashboard"
           className="inline-flex items-center text-xs font-bold text-gray-500 hover:text-rose-600 transition"
@@ -207,17 +207,15 @@ export default function Chat() {
           <ArrowLeft className="w-3.5 h-3.5 mr-1" />
           Dashboard
         </Link>
-        <div className="flex items-center gap-3">
-          <div className="h-7 px-2 bg-white rounded-lg border border-gray-200 flex items-center shadow-xs">
-            <Image
-              src="/logo.png"
-              alt="SUV Logo"
-              width={40}
-              height={20}
-              className="object-contain"
-            />
-          </div>
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2.5">
+          <Image
+            src="/logo.png"
+            alt="SUV Logo"
+            width={48}
+            height={24}
+            className="h-6 w-auto object-contain"
+          />
+          <div className="flex items-center gap-1.5 border-l border-gray-200 pl-2.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-xs font-black text-gray-950">suv++ Agent Online</span>
           </div>
@@ -232,15 +230,13 @@ export default function Chat() {
             <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
               {msg.role === "assistant" && (
                 <div className="flex items-center gap-2 mb-1.5 pl-1">
-                  <div className="w-6 h-6 rounded-md bg-white border border-rose-100 flex items-center justify-center p-0.5 shadow-xs">
-                    <Image
-                      src="/logo.png"
-                      alt="SUV Assistant"
-                      width={22}
-                      height={12}
-                      className="object-contain"
-                    />
-                  </div>
+                  <Image
+                    src="/logo.png"
+                    alt="SUV Assistant"
+                    width={32}
+                    height={16}
+                    className="h-4 w-auto object-contain"
+                  />
                   <span className="text-[11px] font-extrabold text-gray-700">suv++ Agent</span>
                 </div>
               )}
@@ -339,15 +335,13 @@ export default function Chat() {
               <div className="bg-white border border-rose-100 rounded-2xl p-4 shadow-md shadow-rose-500/5 space-y-3 max-w-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="h-5 px-1.5 bg-gray-50 border rounded flex items-center">
-                      <Image
-                        src="/logo.png"
-                        alt="SUV Logo"
-                        width={28}
-                        height={14}
-                        className="object-contain"
-                      />
-                    </div>
+                    <Image
+                      src="/logo.png"
+                      alt="SUV Logo"
+                      width={32}
+                      height={16}
+                      className="h-4 w-auto object-contain"
+                    />
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Agent Pipeline</span>
                   </div>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />

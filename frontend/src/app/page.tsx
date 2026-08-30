@@ -14,7 +14,7 @@ export default async function Home() {
 
   return (
     <div className="space-y-16 py-4">
-      {/* Hero Visual Card with 3D Artwork and Top-Left SUV Logo */}
+      {/* Hero Visual Card with 3D Artwork and Sleek Transparent SUV Logo */}
       <div className="relative rounded-3xl overflow-hidden shadow-2xl border border-rose-200/50 bg-[#8B0000]">
         {/* Background Artwork */}
         <div className="relative w-full h-[500px] sm:h-[560px]">
@@ -26,21 +26,20 @@ export default async function Home() {
             priority
           />
 
-          {/* Top-Left Prominent SUV Logo Badge */}
+          {/* Top-Left Sleek Floating Pill Badge with Transparent White SUV Logo */}
           <div className="absolute top-6 left-6 z-20">
-            <div className="flex items-center gap-3 bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/80 shadow-lg">
+            <div className="flex items-center gap-2.5 bg-black/45 backdrop-blur-md px-4 py-2 rounded-full border border-white/20 shadow-xl">
               <Image
-                src="/logo.png"
-                alt="SUV Official Logo"
-                width={65}
-                height={34}
-                className="object-contain"
+                src="/logo_white.png"
+                alt="SUV Official"
+                width={50}
+                height={25}
+                className="h-5 w-auto object-contain"
                 priority
               />
-              <div className="border-l border-gray-200 pl-3">
-                <p className="text-[10px] font-extrabold uppercase tracking-widest text-rose-600">Official</p>
-                <p className="text-xs font-black text-gray-950">suv++ Agent</p>
-              </div>
+              <span className="text-xs font-black text-white tracking-wider uppercase border-l border-white/30 pl-2.5">
+                Official SUV
+              </span>
             </div>
           </div>
 

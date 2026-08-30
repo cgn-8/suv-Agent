@@ -141,8 +141,8 @@ async function callGemini(genAI: GoogleGenerativeAI, prompt: string): Promise<st
   // If user set GEMINI_MODEL explicitly, try that first, then fallbacks
   const userModel = process.env.GEMINI_MODEL?.trim();
   const MODEL_CHAIN: string[] = userModel
-    ? [userModel, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest']
-    : ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest'];
+    ? [userModel, 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash']
+    : ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.6-flash'];
 
   const tried: string[] = [];
 

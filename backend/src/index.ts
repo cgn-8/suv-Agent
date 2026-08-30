@@ -11,13 +11,24 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../frontend/.env.local') });
 
 const app = express();
-app.use(cors());
+
+// Explicit CORS Configuration for Web & Cloud deployment
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://izqcgznnkljiaukhwiif.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+app.get('/', (req, res) => {
+  res.send('suv++ Agent Backend API is live and operational!');
+});
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -157,9 +168,9 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+const PORT = Number(process.env.PORT) || 4000;
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`  suv++ Agent backend LIVE on http://localhost:${PORT}`);
+  console.log(`  suv++ Agent backend LIVE on http://0.0.0.0:${PORT}`);
   console.log(`======================================================\n`);
 });

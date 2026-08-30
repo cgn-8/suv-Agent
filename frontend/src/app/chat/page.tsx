@@ -93,15 +93,22 @@ export default function Chat() {
     setLoading(true);
     setStatusStep("thinking");
 
+    // Clean backend base URL (remove trailing slashes)
+    const rawUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4000";
+    const backendUrl = rawUrl.trim().replace(/\/+$/, "");
+
     try {
-      const response = await fetch(
-        (process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4000") + "/api/chat",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, message: userMessage, sessionId }),
-        }
-      );
+      console.log(`[API Call] Sending chat to: ${backendUrl}/api/chat`);
+      const response = await fetch(`${backendUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, message: userMessage, sessionId }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Server returned status ${response.status}: ${errText}`);
+      }
 
       const data = await response.json();
 
@@ -116,13 +123,13 @@ export default function Chat() {
           pathId: data.pathId,
         },
       ]);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error("Chat communication error:", error);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Sorry, I encountered an error communicating with the backend server. Please make sure the backend is running.",
+          content: `Sorry, I encountered an error communicating with the backend server (${backendUrl}). If the backend was sleeping on Render, please wait 30 seconds for it to wake up and try again!`,
         },
       ]);
     } finally {
@@ -322,7 +329,7 @@ export default function Chat() {
             </div>
           ))}
 
-          {/* Dynamic Visual Status Indicator with SUV Logo */}
+          {/* Dynamic Visual Status Indicator */}
           {loading && (
             <div className="flex justify-start py-2">
               <div className="bg-white border border-rose-100 rounded-2xl p-4 shadow-md shadow-rose-500/5 space-y-3 max-w-sm">

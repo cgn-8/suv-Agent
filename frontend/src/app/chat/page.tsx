@@ -5,6 +5,8 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Send,
   Loader2,
@@ -50,7 +52,7 @@ export default function Chat() {
         setMessages([
           {
             role: "assistant",
-            content: "Hello! I am your AI Learning Mentor. Ask me any question, discuss a concept, or ask for a complete personalized learning path with courses and videos."
+            content: "Hello! I am your **AI Learning Mentor**. Ask me any question, discuss a concept, or ask for a complete personalized learning path with verified courses, YouTube tutorials, and projects."
           }
         ]);
       }
@@ -240,17 +242,54 @@ export default function Chat() {
                   <span className="text-[11px] font-extrabold text-gray-700">suv++ Agent</span>
                 </div>
               )}
+              
+              {/* Message Bubble with Full Markdown & Clickable Link Rendering */}
               <div
-                className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-sm leading-relaxed ${
                   msg.role === "user"
                     ? "bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-tr-sm shadow-sm font-medium"
-                    : "bg-gray-100 text-gray-950 rounded-tl-sm"
+                    : "bg-gray-100 text-gray-950 rounded-tl-sm space-y-2.5"
                 }`}
               >
-                {msg.content}
+                {msg.role === "user" ? (
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                ) : (
+                  <div className="prose prose-sm max-w-none text-gray-900 leading-relaxed">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        h1: ({ node, ...props }) => <h1 className="text-lg font-black text-gray-950 mt-3 mb-1.5 border-b pb-1" {...props} />,
+                        h2: ({ node, ...props }) => <h2 className="text-base font-extrabold text-gray-950 mt-3 mb-1" {...props} />,
+                        h3: ({ node, ...props }) => <h3 className="text-sm font-bold text-rose-800 mt-2.5 mb-1" {...props} />,
+                        p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                        ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2 space-y-1" {...props} />,
+                        ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2 space-y-1" {...props} />,
+                        li: ({ node, ...props }) => <li className="pl-0.5" {...props} />,
+                        strong: ({ node, ...props }) => <strong className="font-extrabold text-gray-950" {...props} />,
+                        a: ({ node, href, children, ...props }) => (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-rose-600 font-bold hover:text-rose-700 underline underline-offset-2 inline-flex items-center gap-1 hover:underline"
+                            {...props}
+                          >
+                            <span>{children}</span>
+                            <ExternalLink className="w-3 h-3 inline flex-shrink-0" />
+                          </a>
+                        ),
+                        code: ({ node, ...props }) => (
+                          <code className="bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded text-xs font-mono font-bold" {...props} />
+                        )
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
 
-              {/* Render Structured Learning Path */}
+              {/* Render Structured Learning Path Card */}
               {msg.learningPath && (
                 <div className="mt-4 w-full max-w-[95%] bg-white border border-rose-100 rounded-2xl p-6 shadow-md shadow-rose-500/5 space-y-6">
                   <div className="flex flex-wrap justify-between items-start gap-3 border-b border-gray-100 pb-4">

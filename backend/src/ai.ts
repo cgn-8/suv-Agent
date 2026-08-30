@@ -94,16 +94,23 @@ async function searchLearningResources(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-// Fast heuristic to check if the user is explicitly requesting a new roadmap
+// Broad detection for learning queries, resource requests, course lookups, and roadmaps
 function isRoadmapRequest(message: string): boolean {
   const lower = message.toLowerCase().trim();
-  const roadmapKeywords = [
-    'roadmap', 'learning path', 'recommend course', 'recommend me', 'suggest course',
-    'refer me', 'find course', 'give me courses', 'curriculum', 'study plan', 'learn path',
-    'where to start learning', 'guide to learn', 'step by step guide', 'recommend a complete',
-    'how to learn', 'how do i learn', 'teach me', 'want to master'
+  
+  // Simple greetings or very short non-learning remarks remain casual
+  const casualPhrases = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'how are you', 'thank you', 'thanks', 'cool', 'ok', 'okay', 'bye'];
+  if (casualPhrases.includes(lower)) return false;
+
+  const keywords = [
+    'resource', 'resources', 'video', 'videos', 'youtube', 'course', 'courses',
+    'tutorial', 'tutorials', 'roadmap', 'learning path', 'curriculum', 'study plan',
+    'learn', 'teach', 'master', 'guide', 'how to', 'dsa', 'algorithm', 'system design',
+    'frontend', 'backend', 'fullstack', 'full-stack', 'ai', 'python', 'javascript',
+    'react', 'nextjs', 'next.js', 'project', 'projects', 'where to start', 'recommend'
   ];
-  return roadmapKeywords.some(kw => lower.includes(kw));
+
+  return keywords.some(kw => lower.includes(kw));
 }
 
 // Robust JSON Extractor
@@ -140,7 +147,7 @@ export async function generateLearningPath(message: string, profile: any, histor
 
   const formattedHistory = history.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
 
-  // Case A: Casual conversation, questions, greetings, feedback, or conceptual explanations
+  // Case A: Casual conversation & greetings
   if (!isRoadmapRequest(message)) {
     const chatPrompt = `
 You are suv++ Agent, an encouraging, ultra-smart AI Learning Mentor.
@@ -159,32 +166,37 @@ User's Latest Message: "${message}"
 
 Instructions:
 - Provide a helpful, clear, and natural conversational response.
-- Answer their question or acknowledge their feedback warmly.
-- If they ask for general guidance or concept explanations, explain clearly with concise examples.
-- If they seem interested in exploring a new topic or want a structured study plan, offer to create a customized multi-phase roadmap for them.
+- Answer their question or acknowledge their greeting warmly.
+- Mention 2-3 hot learning paths or invite them to share what topic or stack they'd like to explore today.
 `;
 
-    const chatRes = await model.generateContent(chatPrompt);
-    const chatReply = chatRes.response.text().trim();
-
-    return {
-      assistantResponse: chatReply,
-      learningPath: null
-    };
+    try {
+      const chatRes = await model.generateContent(chatPrompt);
+      const chatReply = chatRes.response.text().trim();
+      return {
+        assistantResponse: chatReply,
+        learningPath: null
+      };
+    } catch (e: any) {
+      return {
+        assistantResponse: `Hello ${profile?.full_name || 'Learner'}! 👋 Welcome to **suv++ Agent**. What skills or technologies would you like to master today? Let me know and I will assemble a personalized learning path with verified courses and tutorials!`,
+        learningPath: null
+      };
+    }
   }
 
-  // Case B: Explicit Roadmap / Course Recommendation Request
+  // Case B: Structured Learning & Resource Discovery Request
   console.log(`[Roadmap Engine] Processing structured roadmap request for: "${message}"`);
 
-  // Step 1: Live Scraping / Search via External APIs (with timeout protection)
-  const searchQuery = `${message} best courses youtube tutorials articles 2025`;
+  // Step 1: Live Scraping / Search via External APIs
+  const searchQuery = `${message} best courses youtube tutorials documentation 2025`;
   const liveResults = await searchLearningResources(searchQuery);
 
   console.log(`[Scraping] Found ${liveResults.length} live resources from search APIs.`);
 
   // Step 2: LLM Synthesis with Live Search Data
   const roadmapPrompt = `
-You are suv++ Agent, an AI Learning Mentor.
+You are suv++ Agent, an elite AI Learning Mentor.
 Construct a high-quality, structured, personalized learning path for this learner.
 
 Learner Profile:
@@ -206,13 +218,14 @@ ${JSON.stringify(liveResults, null, 2)}
 
 Instructions:
 - Use the live search results to include real, accurate URLs and names for YouTube videos, Coursera/Udemy/free courses, documentation, and articles.
-- Structure into 3-4 progressive phases (e.g. Phase 1: Foundations, Phase 2: Core Practical Tools, Phase 3: Real-World Projects, Phase 4: Production & Portfolio).
+- Structure into 3-4 progressive phases (e.g. Phase 1: Foundations, Phase 2: Core Practical Tools & DSA, Phase 3: Real-World Projects, Phase 4: Interview & Practice).
 - In every resource, provide a detailed "reason" explaining WHY this specific resource fits the learner's skill level (${profile?.current_skill_level || 'Beginner'}) and goal.
+- In intro_message, write an encouraging markdown message introducing this plan with key takeaways.
 - Suggest a practical "next_action" the learner can start immediately today.
 
 Return ONLY pure JSON (no markdown formatting outside JSON):
 {
-  "intro_message": "Warm, encouraging message introducing this custom roadmap to the learner",
+  "intro_message": "Warm, encouraging message introducing this custom roadmap to the learner with key highlights",
   "title": "Clear Roadmap Title",
   "goal": "Summary of what the learner will accomplish",
   "level": "Beginner | Intermediate | Advanced",
@@ -239,7 +252,7 @@ Return ONLY pure JSON (no markdown formatting outside JSON):
     const roadmapText = roadmapRes.response.text().trim();
     const learningPath = extractJSON(roadmapText);
 
-    const intro = learningPath.intro_message || `I've put together a personalized learning roadmap for you: **${learningPath.title}**. Check out the curated courses, tutorials, and practical projects below!`;
+    const intro = learningPath.intro_message || `I've assembled a personalized roadmap for you: **${learningPath.title}**. Check out the curated courses, YouTube videos, and projects below!`;
 
     return {
       assistantResponse: intro,
@@ -257,7 +270,12 @@ Return ONLY pure JSON (no markdown formatting outside JSON):
     
     // Fallback: Generate conversational response with recommendations
     return {
-      assistantResponse: `I've researched your goal for "${message}". Here are top recommended areas to focus on: 1. Core Next.js App Router & Server Actions, 2. Supabase Postgres & Vector Database, 3. LangChain Agents & LCEL. Let me know if you want to explore any specific phase in depth!`,
+      assistantResponse: `I've analyzed your request for "${message}". To get started with DSA, focus on:
+1. **Core Data Structures**: Arrays, Linked Lists, Stacks, Queues, and Hash Maps on [LeetCode](https://leetcode.com) and [NeetCode YouTube](https://youtube.com/@neetcode).
+2. **Algorithms**: Binary Search, Recursion, Sorting, Graph Traversals (BFS/DFS).
+3. **Practice**: Striver's A2Z DSA Sheet and Abdul Bari's Algorithms playlist.
+
+Ask any specific topic and I'll generate a deep-dive module for you!`,
       learningPath: null
     };
   }

@@ -75,19 +75,19 @@ async function runMultiScraper(query: string): Promise<SearchResult[]> {
   const apifyKey = (process.env.APIFY_API_KEY || process.env.APIFY_TOKEN)?.trim();
 
   const tasks: Promise<SearchResult[]>[] = [];
-  if (tavilyKey)   tasks.push(searchTavily(query, tavilyKey));
+  if (tavilyKey)    tasks.push(searchTavily(query, tavilyKey));
   if (firecrawlKey) tasks.push(searchFirecrawl(query, firecrawlKey));
-  if (apifyKey)    tasks.push(searchApify(query, apifyKey));
+  if (apifyKey)     tasks.push(searchApify(query, apifyKey));
 
   if (tasks.length === 0) {
-    console.log('[Multi-Scraper] No API keys configured. Running without live data.');
+    console.log('[Multi-Scraper] No API keys found — running without live scraped data.');
     return [];
   }
 
   const settled = await Promise.allSettled(tasks);
   const results: SearchResult[] = [];
   settled.forEach(r => { if (r.status === 'fulfilled') results.push(...r.value); });
-  console.log(`[Multi-Scraper] Total live results collected: ${results.length}`);
+  console.log(`[Multi-Scraper] Total live results: ${results.length}`);
   return results;
 }
 
@@ -100,7 +100,8 @@ type Intent = 'GREETING' | 'CONCEPT' | 'RESOURCE';
 function classifyIntent(message: string): Intent {
   const t = message.toLowerCase().trim();
 
-  const greetings = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'good afternoon', 'how are you', 'thank you', 'thanks', 'bye', 'ok', 'okay', 'cool'];
+  const greetings = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'good afternoon',
+    'how are you', 'thank you', 'thanks', 'bye', 'ok', 'okay', 'cool'];
   if (greetings.includes(t)) return 'GREETING';
 
   const resourceSignals = [
@@ -126,10 +127,59 @@ function extractJSON(text: string): any {
   s = s.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    s = s.substring(start, end + 1);
-  }
+  if (start !== -1 && end > start) s = s.substring(start, end + 1);
   return JSON.parse(s);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GEMINI MODEL FALLBACK CHAIN
+// Tries models in order until one responds. Handles 404 (unavailable) and
+// 429 (quota exhausted) gracefully by moving to the next model.
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function callGemini(genAI: GoogleGenerativeAI, prompt: string): Promise<string> {
+  // If user set GEMINI_MODEL explicitly, try that first, then fallbacks
+  const userModel = process.env.GEMINI_MODEL?.trim();
+  const MODEL_CHAIN: string[] = userModel
+    ? [userModel, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest']
+    : ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest'];
+
+  const tried: string[] = [];
+
+  for (const modelName of MODEL_CHAIN) {
+    if (tried.includes(modelName)) continue;
+    tried.push(modelName);
+    try {
+      const m = genAI.getGenerativeModel({ model: modelName });
+      const result = await m.generateContent(prompt);
+      const text = result.response.text().trim();
+      console.log(`[Gemini] ✅ Success with model: ${modelName}`);
+      return text;
+    } catch (err: any) {
+      const msg: string = err?.message || '';
+      const isRecoverable =
+        msg.includes('404') ||
+        msg.includes('429') ||
+        msg.includes('quota') ||
+        msg.includes('no longer available') ||
+        msg.includes('Too Many Requests') ||
+        msg.includes('not found') ||
+        msg.includes('Not Found');
+
+      if (isRecoverable) {
+        console.warn(`[Gemini] ⚠️  ${modelName} skipped: ${msg.substring(0, 120)}`);
+        continue;
+      }
+      // Unexpected error (auth, network, etc.) — rethrow immediately
+      throw err;
+    }
+  }
+
+  throw new Error(
+    'All Gemini models are quota-exhausted or unavailable for this API key.\n' +
+    'Tried: ' + tried.join(', ') + '\n' +
+    'Fix: Enable billing at https://aistudio.google.com/apikey or create a new API key.'
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -138,21 +188,18 @@ function extractJSON(text: string): any {
 
 export async function generateLearningPath(message: string, profile: any, history: any[] = []) {
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!geminiKey) throw new Error('GEMINI_API_KEY not set.');
+  if (!geminiKey) throw new Error('GEMINI_API_KEY is not set in backend environment.');
 
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
-  console.log(`[Gemini] Using model: ${geminiModel}`);
-  const model = genAI.getGenerativeModel({ model: geminiModel });
 
-  const profileSummary = `
-- Name: ${profile?.full_name || 'Learner'}
-- Skill Level: ${profile?.current_skill_level || 'Beginner'}
-- Current Role: ${profile?.current_job_role || 'Student / Developer'}
-- Target Role: ${profile?.target_role || 'Not specified'}
-- Interests: ${profile?.interests || 'General tech'}
-- Weekly Hours: ${profile?.time_available_per_week || '5–10 hours'}
-`.trim();
+  const profileSummary = [
+    `Name: ${profile?.full_name || 'Learner'}`,
+    `Skill Level: ${profile?.current_skill_level || 'Beginner'}`,
+    `Current Role: ${profile?.current_job_role || 'Student / Developer'}`,
+    `Target Role: ${profile?.target_role || 'Not specified'}`,
+    `Interests: ${profile?.interests || 'General tech'}`,
+    `Weekly Hours: ${profile?.time_available_per_week || '5–10 hours'}`,
+  ].join('\n');
 
   const historyContext = history.length > 0
     ? history.map(h => `${h.role === 'user' ? 'User' : 'Agent'}: ${h.content}`).join('\n')
@@ -161,51 +208,53 @@ export async function generateLearningPath(message: string, profile: any, histor
   const intent = classifyIntent(message);
   console.log(`[Intent] "${message}" => ${intent}`);
 
-  // ─── GREETING ───────────────────────────────────────────────────────────────
+  // ─── GREETING ─────────────────────────────────────────────────────────────
   if (intent === 'GREETING') {
     const prompt = `You are suv++ Agent, an enthusiastic senior AI engineer and career mentor.
-The learner just said: "${message}"
-Profile: ${profileSummary}
+The learner said: "${message}"
+Learner Profile: ${profileSummary}
 
-Write a warm, energetic greeting (2–3 sentences). Then list 5 popular domains they can explore with you:
-AI & Machine Learning, Cybersecurity, Full-Stack Web Dev, Data Science, and DevOps.
-Invite them to ask anything: a concept, a "what is X", or "I want to learn Y" for a curated roadmap.`;
+Give a warm, energetic welcome (2–3 sentences). Then highlight 5 domains they can explore:
+🤖 AI & Machine Learning, 🛡️ Cybersecurity, 🌐 Full-Stack Web Dev, 📊 Data Science, ⚙️ DevOps/Cloud.
+Invite them to either ask "what is X" for a deep explanation, or "I want to learn X" for a personalized roadmap.`;
 
-    const result = await model.generateContent(prompt);
-    return { assistantResponse: result.response.text().trim(), learningPath: null };
+    const text = await callGemini(genAI, prompt);
+    return { assistantResponse: text, learningPath: null };
   }
 
-  // ─── CONCEPT (What is X / How does X work / Compare X vs Y) ─────────────────
+  // ─── CONCEPT ──────────────────────────────────────────────────────────────
   if (intent === 'CONCEPT') {
     const prompt = `You are suv++ Agent — a world-class senior software engineer, architect, and technical mentor.
-The learner asked: "${message}"
+Learner asked: "${message}"
 
-Learner Profile:
+Profile:
 ${profileSummary}
 
 Conversation History:
 ${historyContext}
 
-Deliver a thorough, senior-engineer-level explanation. Your response MUST:
-1. Start with a sharp, 1-sentence TL;DR definition.
-2. Break it down in 3–5 structured sections with ## headings (e.g., ## What it is, ## How it works, ## Real-world uses, ## Pros & Cons or comparisons).
-3. Use **bold** for key terms, bullet points for lists, and short code snippets (in backticks) where relevant.
-4. Give a clear real-world analogy to make it intuitive.
-5. End with a "## Want to go deeper?" section that invites them to ask for a curated learning roadmap.
+Deliver a thorough, senior-engineer-level explanation structured as follows:
+1. **TL;DR** — One sharp sentence defining the concept.
+2. ## What It Is — Clear definition with a real-world analogy.
+3. ## How It Works — Step-by-step breakdown (use bullets or numbered list).
+4. ## Real-World Uses — 3–5 concrete industry examples with **bold** company/tool names.
+5. ## Key Terms — Brief definitions of 3–5 important related concepts.
+6. ## Want to Go Deeper? — Invite them to type "I want to learn [topic]" for a full personalized roadmap with courses, YouTube videos, and hands-on projects.
 
-Tailor depth to skill level: ${profile?.current_skill_level || 'Beginner'}.`;
+Use **bold** for key terms. Use \`code snippets\` for any code or commands. Tailor depth to: ${profile?.current_skill_level || 'Beginner'}.`;
 
-    const result = await model.generateContent(prompt);
-    return { assistantResponse: result.response.text().trim(), learningPath: null };
+    const text = await callGemini(genAI, prompt);
+    return { assistantResponse: text, learningPath: null };
   }
 
-  // ─── RESOURCE / ROADMAP ──────────────────────────────────────────────────────
-  console.log('[Roadmap Engine] Starting live scraper pipeline...');
-  const searchQuery = `${message} best courses youtube tutorials documentation beginner 2025`;
+  // ─── RESOURCE / ROADMAP ───────────────────────────────────────────────────
+  console.log('[Roadmap Engine] Launching live scraper pipeline...');
+  const searchQuery = `${message} best courses youtube tutorials documentation projects 2025`;
   const liveResults = await runMultiScraper(searchQuery);
+  console.log(`[Roadmap Engine] Scraped ${liveResults.length} live resources.`);
 
   const roadmapPrompt = `You are suv++ Agent — a principal engineer and career strategist.
-Build a precise, actionable learning roadmap for the learner's request.
+Build a precise, actionable learning roadmap.
 
 Learner Profile:
 ${profileSummary}
@@ -215,22 +264,21 @@ ${historyContext}
 
 User Request: "${message}"
 
-Live Scraped Resources (use the best URLs from these in your phases):
-${JSON.stringify(liveResults, null, 2)}
+Live Scraped Resources from Tavily / Firecrawl / Apify (use the best real URLs from these):
+${JSON.stringify(liveResults.slice(0, 10), null, 2)}
 
-IMPORTANT RULES:
-1. Title: Short and impactful (max 8 words). Do NOT repeat the user's query verbatim.
-2. Phases: Create exactly 3–4 sequential phases with realistic phase names.
-3. Resources: Each phase must have 2–4 resources with:
-   - real URLs from the scraped data above, OR known high-quality URLs (YouTube, freeCodeCamp, official docs).
-   - type: "Video" | "Course" | "Article" | "Project" | "Documentation"
-   - reason: A specific 1–2 sentence explanation of WHY this resource was chosen for their exact goal and level.
-4. intro_message: 2–3 sentence markdown welcome that summarises what they will achieve.
-5. next_action: The exact first step they must do TODAY.
+STRICT RULES:
+1. "title": Short and impactful, max 8 words. Do NOT echo the user query verbatim.
+2. "phases": Exactly 3–4 sequential, named phases (e.g. "Phase 1: Foundations & Setup").
+3. Each phase must have 2–4 resources:
+   - Use scraped URLs when they are high quality; otherwise use known good URLs (YouTube, freeCodeCamp, official docs, GitHub).
+   - "type": one of "Video" | "Course" | "Article" | "Project" | "Documentation"
+   - "reason": 1–2 sentences explaining WHY this specific resource fits this learner's goal and level.
+4. "intro_message": 2–3 sentence markdown summary of what they will achieve.
+5. "next_action": The exact first action they should do TODAY (be specific).
 
-Respond ONLY with a raw JSON object. No markdown fences, no extra text, just the JSON.
+Respond ONLY with a raw JSON object. No markdown fences, no extra text before or after.
 
-Schema:
 {
   "intro_message": "...",
   "title": "...",
@@ -239,7 +287,7 @@ Schema:
   "estimated_duration": "...",
   "phases": [
     {
-      "phase_name": "Phase N: ...",
+      "phase_name": "Phase 1: ...",
       "resources": [
         { "title": "...", "url": "https://...", "type": "...", "reason": "..." }
       ]
@@ -252,9 +300,8 @@ Schema:
   let introMessage = '';
 
   try {
-    const result = await model.generateContent(roadmapPrompt);
-    const raw = result.response.text().trim();
-    console.log('[Roadmap] Raw Gemini response (first 200):', raw.substring(0, 200));
+    const raw = await callGemini(genAI, roadmapPrompt);
+    console.log('[Roadmap] Gemini raw response preview:', raw.substring(0, 200));
     const parsed = extractJSON(raw);
 
     learningPath = {
@@ -265,11 +312,11 @@ Schema:
       phases: parsed.phases || [],
       next_action: parsed.next_action
     };
-    introMessage = parsed.intro_message || `Here is your personalized roadmap: **${parsed.title}**. Let's build this step by step!`;
+    introMessage = parsed.intro_message || `Here is your personalized roadmap: **${parsed.title}**. Let's get started!`;
   } catch (err: any) {
-    console.error('[Roadmap] JSON parse error or Gemini error:', err.message);
+    console.error('[Roadmap] Gemini/JSON error — using scraped fallback. Error:', err.message);
 
-    // Graceful fallback: Build roadmap directly from scraped results
+    // Graceful fallback using raw scraped data only
     const phases: any[] = [];
     if (liveResults.length > 0) {
       phases.push({
@@ -278,7 +325,7 @@ Schema:
           title: r.title,
           url: r.url,
           type: 'Course',
-          reason: `This resource was found live via ${r.source} and is directly relevant to: "${message}".`
+          reason: `Live resource from ${r.source} — directly relevant to your request.`
         }))
       });
       if (liveResults.length > 3) {
@@ -288,21 +335,21 @@ Schema:
             title: r.title,
             url: r.url,
             type: 'Video',
-            reason: `Hands-on tutorial scraped live from ${r.source}.`
+            reason: `Hands-on tutorial or article found live via ${r.source}.`
           }))
         });
       }
     }
 
     learningPath = {
-      title: `${message.split(' ').slice(0, 5).join(' ')} Roadmap`,
-      goal: `Build solid skills in: ${message}`,
+      title: message.split(' ').slice(0, 6).join(' ') + ' Roadmap',
+      goal: `Build practical skills in: ${message}`,
       level: profile?.current_skill_level || 'Beginner',
       estimated_duration: '6–8 Weeks',
       phases,
-      next_action: 'Start with Phase 1 and complete the first resource this week.'
+      next_action: 'Start Phase 1 today — spend 30 minutes on the first resource.'
     };
-    introMessage = `I've assembled a curated roadmap for **"${message}"** using live web resources. Dive in below!`;
+    introMessage = `I've built your personalized roadmap for **"${message}"** using live web resources. Let's go! 🚀`;
   }
 
   return { assistantResponse: introMessage, learningPath };

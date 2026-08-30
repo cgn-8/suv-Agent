@@ -141,7 +141,7 @@ export async function generateLearningPath(message: string, profile: any, histor
   if (!geminiKey) throw new Error('GEMINI_API_KEY not set.');
 
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash';
+  const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
   console.log(`[Gemini] Using model: ${geminiModel}`);
   const model = genAI.getGenerativeModel({ model: geminiModel });
 

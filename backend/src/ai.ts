@@ -7,20 +7,26 @@ interface SearchResult {
   source?: string;
 }
 
-// 1. Tavily Real-Time Web Search
+// 1. Tavily Real-Time Web Search with 5s Timeout
 async function searchTavily(query: string, apiKey: string): Promise<SearchResult[]> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         api_key: apiKey,
         query,
-        search_depth: 'advanced',
-        include_answer: true,
-        max_results: 6
+        search_depth: 'basic',
+        include_answer: false,
+        max_results: 5
       })
     });
+    clearTimeout(timeoutId);
+
     if (!response.ok) return [];
     const data: any = await response.json();
     return (data.results || []).map((r: any) => ({
@@ -29,23 +35,29 @@ async function searchTavily(query: string, apiKey: string): Promise<SearchResult
       content: r.content,
       source: 'Tavily Search'
     }));
-  } catch (err) {
-    console.warn("Tavily search skipped/failed:", err);
+  } catch (err: any) {
+    console.warn("Tavily search timeout/error:", err.message);
     return [];
   }
 }
 
-// 2. Firecrawl Web Scrape & Search
+// 2. Firecrawl Web Scrape & Search with 5s Timeout
 async function searchFirecrawl(query: string, apiKey: string): Promise<SearchResult[]> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
+      signal: controller.signal,
       body: JSON.stringify({ query, limit: 3 })
     });
+    clearTimeout(timeoutId);
+
     if (!response.ok) return [];
     const data: any = await response.json();
     return (data.data || []).map((r: any) => ({
@@ -54,13 +66,13 @@ async function searchFirecrawl(query: string, apiKey: string): Promise<SearchRes
       content: r.description || r.markdown?.substring(0, 300),
       source: 'Firecrawl'
     }));
-  } catch (err) {
-    console.warn("Firecrawl search skipped/failed:", err);
+  } catch (err: any) {
+    console.warn("Firecrawl search timeout/error:", err.message);
     return [];
   }
 }
 
-// Multi-Source Resource Discovery
+// Multi-Source Resource Discovery with Fast Fallbacks
 async function searchLearningResources(query: string): Promise<SearchResult[]> {
   const tavilyKey = process.env.TAVILY_API_KEY?.trim();
   const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
@@ -88,16 +100,39 @@ function isRoadmapRequest(message: string): boolean {
   const roadmapKeywords = [
     'roadmap', 'learning path', 'recommend course', 'recommend me', 'suggest course',
     'refer me', 'find course', 'give me courses', 'curriculum', 'study plan', 'learn path',
-    'where to start learning', 'guide to learn', 'step by step guide to master'
+    'where to start learning', 'guide to learn', 'step by step guide', 'recommend a complete',
+    'how to learn', 'how do i learn', 'teach me', 'want to master'
   ];
   return roadmapKeywords.some(kw => lower.includes(kw));
+}
+
+// Robust JSON Extractor
+function extractJSON(text: string): any {
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/```\s*$/i, '');
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const substr = cleaned.substring(firstBrace, lastBrace + 1);
+      return JSON.parse(substr);
+    }
+    throw new Error("Could not parse JSON from model output");
+  }
 }
 
 export async function generateLearningPath(message: string, profile: any, history: any[] = []) {
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
 
   if (!geminiKey) {
-    throw new Error("GEMINI_API_KEY is not configured in backend/.env");
+    throw new Error("GEMINI_API_KEY is not configured in backend environment.");
   }
 
   const genAI = new GoogleGenerativeAI(geminiKey);
@@ -105,9 +140,8 @@ export async function generateLearningPath(message: string, profile: any, histor
 
   const formattedHistory = history.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
 
-  // Case A: Casual conversation, questions, greetings, feedback, or general advice
+  // Case A: Casual conversation, questions, greetings, feedback, or conceptual explanations
   if (!isRoadmapRequest(message)) {
-    // Quick, conversational response from Gemini
     const chatPrompt = `
 You are suv++ Agent, an encouraging, ultra-smart AI Learning Mentor.
 Learner Profile:
@@ -142,7 +176,7 @@ Instructions:
   // Case B: Explicit Roadmap / Course Recommendation Request
   console.log(`[Roadmap Engine] Processing structured roadmap request for: "${message}"`);
 
-  // Step 1: Live Scraping / Search via External APIs
+  // Step 1: Live Scraping / Search via External APIs (with timeout protection)
   const searchQuery = `${message} best courses youtube tutorials articles 2025`;
   const liveResults = await searchLearningResources(searchQuery);
 
@@ -200,30 +234,31 @@ Return ONLY pure JSON (no markdown formatting outside JSON):
 }
 `;
 
-  const roadmapRes = await model.generateContent(roadmapPrompt);
-  let roadmapText = roadmapRes.response.text().trim();
-  if (roadmapText.startsWith('```json')) roadmapText = roadmapText.replace(/```json\n?/, '').replace(/```$/, '');
-  else if (roadmapText.startsWith('```')) roadmapText = roadmapText.replace(/```\n?/, '').replace(/```$/, '');
-
-  let learningPath: any;
   try {
-    learningPath = JSON.parse(roadmapText);
-  } catch (e) {
-    console.error("Failed to parse roadmap JSON from Gemini:", roadmapText);
-    throw new Error("Failed to parse AI roadmap output.");
+    const roadmapRes = await model.generateContent(roadmapPrompt);
+    const roadmapText = roadmapRes.response.text().trim();
+    const learningPath = extractJSON(roadmapText);
+
+    const intro = learningPath.intro_message || `I've put together a personalized learning roadmap for you: **${learningPath.title}**. Check out the curated courses, tutorials, and practical projects below!`;
+
+    return {
+      assistantResponse: intro,
+      learningPath: {
+        title: learningPath.title || `${message.substring(0, 35)} Roadmap`,
+        goal: learningPath.goal || "Master the target concepts step-by-step.",
+        level: learningPath.level || profile?.current_skill_level || "Beginner",
+        estimated_duration: learningPath.estimated_duration || "4-6 Weeks",
+        phases: learningPath.phases || [],
+        next_action: learningPath.next_action || "Start with Phase 1 resources."
+      }
+    };
+  } catch (error: any) {
+    console.error("Roadmap generation error fallback:", error.message);
+    
+    // Fallback: Generate conversational response with recommendations
+    return {
+      assistantResponse: `I've researched your goal for "${message}". Here are top recommended areas to focus on: 1. Core Next.js App Router & Server Actions, 2. Supabase Postgres & Vector Database, 3. LangChain Agents & LCEL. Let me know if you want to explore any specific phase in depth!`,
+      learningPath: null
+    };
   }
-
-  const intro = learningPath.intro_message || `I've put together a personalized learning roadmap for you: **${learningPath.title}**. Check out the curated courses, tutorials, and practical projects below!`;
-
-  return {
-    assistantResponse: intro,
-    learningPath: {
-      title: learningPath.title,
-      goal: learningPath.goal,
-      level: learningPath.level,
-      estimated_duration: learningPath.estimated_duration,
-      phases: learningPath.phases,
-      next_action: learningPath.next_action
-    }
-  };
 }

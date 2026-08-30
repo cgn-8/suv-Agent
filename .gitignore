@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment Variables & Secrets (CRITICAL FOR SECURITY)
+.env
+.env*
+*.env
+*.env.local
+*.env.production
+frontend/.env.local
+frontend/.env
+backend/.env
+
+# Next.js Build
+frontend/.next/
+frontend/out/
+
+# TypeScript / Build Output
+backend/dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS Files
+.DS_Store
+Thumbs.db

@@ -12,7 +12,10 @@ export const metadata: Metadata = {
   title: "suv++ Agent | The Time is Now",
   description: "AI-Powered Personalized Learning Path Recommender",
   icons: {
-    icon: "/logo.png",
+    icon: [
+      { url: "/logo.png", type: "image/png" },
+      { url: "/favicon.ico" }
+    ],
     shortcut: "/logo.png",
     apple: "/logo.png",
   },
@@ -30,6 +33,8 @@ export default async function RootLayout({
     <html lang="en">
       <head>
         <link rel="icon" href="/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo.png" />
+        <link rel="shortcut icon" href="/logo.png" type="image/png" />
       </head>
       <body className={`${inter.className} bg-[#FAF9F9] text-gray-900 min-h-screen flex flex-col antialiased selection:bg-rose-500 selection:text-white`}>
         {/* Floating Glassmorphic Top Navbar */}

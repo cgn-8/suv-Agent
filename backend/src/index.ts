@@ -165,10 +165,10 @@ app.post('/api/chat', async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error('Chat API Error:', error);
+    console.error('[Chat API Fatal Error]', error?.message || error);
     res.json({
       sessionId: sessionId || 'temp-' + Date.now(),
-      reply: `I analyzed your request for "${message}". To get started immediately, explore the official documentation and top tutorials. Feel free to ask more specific questions about each module!`,
+      reply: `⚠️ Something went wrong on my end. Here's the issue: **${error?.message || 'Unknown error'}**\n\nPlease try again or rephrase your question. If the issue persists, check that all API keys (Gemini, Tavily, Firecrawl) are configured in the backend.`,
       learningPath: null,
       pathId: null,
       warning: error.message

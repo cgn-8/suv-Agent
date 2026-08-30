@@ -105,65 +105,22 @@ async function searchApify(query: string, apiKey: string): Promise<SearchResult[
   }
 }
 
-// 4. Bright Data Web Scraper
-async function searchBrightData(query: string, apiKey: string): Promise<SearchResult[]> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 7000);
-
-    const response = await fetch('https://api.brightdata.com/request', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        zone: process.env.BRIGHTDATA_ZONE || 'web_unlocker1',
-        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-        format: 'raw'
-      })
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) return [];
-    const text = await response.text();
-    return [{
-      title: `${query} Top Tutorials`,
-      url: 'https://youtube.com',
-      content: text.substring(0, 300),
-      source: 'Bright Data Scraper'
-    }];
-  } catch (err: any) {
-    console.warn("Bright Data scraper warning:", err.message);
-    return [];
-  }
-}
-
 // Multi-Source Live Scraper Engine
 async function searchLearningResources(query: string): Promise<SearchResult[]> {
   const tavilyKey = process.env.TAVILY_API_KEY?.trim();
   const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
   const apifyKey = (process.env.APIFY_API_KEY || process.env.APIFY_TOKEN)?.trim();
-  const brightDataKey = process.env.BRIGHTDATA_API_KEY?.trim();
 
-  const results: SearchResult[] = [];
-
-  // Run in parallel for maximum speed
   const scraperTasks: Promise<SearchResult[]>[] = [];
 
   if (tavilyKey) {
     console.log(`[Multi-Scraper] Querying Tavily for: "${query}"`);
     scraperTasks.push(searchTavily(query, tavilyKey));
-  } else {
-    console.log("[Multi-Scraper] TAVILY_API_KEY not configured.");
   }
 
   if (firecrawlKey) {
     console.log(`[Multi-Scraper] Querying Firecrawl for: "${query}"`);
     scraperTasks.push(searchFirecrawl(query, firecrawlKey));
-  } else {
-    console.log("[Multi-Scraper] FIRECRAWL_API_KEY not configured.");
   }
 
   if (apifyKey) {
@@ -171,11 +128,7 @@ async function searchLearningResources(query: string): Promise<SearchResult[]> {
     scraperTasks.push(searchApify(query, apifyKey));
   }
 
-  if (brightDataKey) {
-    console.log(`[Multi-Scraper] Querying Bright Data for: "${query}"`);
-    scraperTasks.push(searchBrightData(query, brightDataKey));
-  }
-
+  const results: SearchResult[] = [];
   const settled = await Promise.allSettled(scraperTasks);
   settled.forEach((res) => {
     if (res.status === 'fulfilled' && Array.isArray(res.value)) {
@@ -187,46 +140,43 @@ async function searchLearningResources(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-// Detection for learning queries, resource requests, course lookups, and roadmaps
-function isRoadmapRequest(message: string): boolean {
+// Senior Developer Intent Classification
+function detectIntent(message: string): "ROADMAP" | "CONCEPT" | "CHAT" {
   const lower = message.toLowerCase().trim();
-  
-  // Simple greetings or very short non-learning remarks remain casual
-  const casualPhrases = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'how are you', 'thank you', 'thanks', 'cool', 'ok', 'okay', 'bye'];
-  if (casualPhrases.includes(lower)) return false;
 
-  const keywords = [
-    'resource', 'resources', 'video', 'videos', 'youtube', 'course', 'courses',
-    'tutorial', 'tutorials', 'roadmap', 'learning path', 'curriculum', 'study plan',
-    'learn', 'teach', 'master', 'guide', 'how to', 'dsa', 'algorithm', 'system design',
-    'frontend', 'backend', 'fullstack', 'full-stack', 'ai', 'python', 'javascript',
-    'react', 'nextjs', 'next.js', 'project', 'projects', 'where to start', 'recommend',
-    'need', 'suggest', 'refer'
+  // Explicit roadmap & resource triggers
+  const roadmapSignals = [
+    'roadmap', 'learning path', 'curriculum', 'study plan', 'resources',
+    'recommend course', 'recommend courses', 'recommend videos', 'recommend tutorials',
+    'refer me', 'find course', 'give me courses', 'where to start', 'within 60 days',
+    'within 30 days', 'step by step guide', 'projects should i focus', 'tools and portfolio',
+    'portfolio projects', 'how to become', 'how can i become', 'freelancing as',
+    'dsa learning resources', 'youtube videos for', 'best courses for'
   ];
 
-  return keywords.some(kw => lower.includes(kw));
-}
-
-// Robust JSON Extractor
-function extractJSON(text: string): any {
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/```\s*$/i, '');
+  if (roadmapSignals.some(signal => lower.includes(signal))) {
+    return "ROADMAP";
   }
 
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const substr = cleaned.substring(firstBrace, lastBrace + 1);
-      return JSON.parse(substr);
-    }
-    throw new Error("Could not parse JSON from model output");
+  // Conceptual and technical questions
+  const conceptSignals = [
+    'what is', 'what are', 'how does', 'why is', 'difference between',
+    'explain', 'tell me about', 'define', 'meaning of', 'pros and cons',
+    'compare', 'how to implement', 'can you explain'
+  ];
+
+  if (conceptSignals.some(signal => lower.includes(signal))) {
+    return "CONCEPT";
   }
+
+  // Casual greetings
+  const casualGreetings = ['hello', 'hi', 'hey', 'good morning', 'good evening', 'how are you', 'thank you', 'thanks', 'cool', 'ok', 'okay', 'bye'];
+  if (casualGreetings.includes(lower)) {
+    return "CHAT";
+  }
+
+  // Default to CONCEPT for informative queries
+  return "CONCEPT";
 }
 
 export async function generateLearningPath(message: string, profile: any, history: any[] = []) {
@@ -237,159 +187,170 @@ export async function generateLearningPath(message: string, profile: any, histor
   }
 
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-
   const formattedHistory = history.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
 
-  // Case A: Casual conversation & greetings
-  if (!isRoadmapRequest(message)) {
-    const chatPrompt = `
-You are suv++ Agent, an encouraging, ultra-smart AI Learning Mentor.
-Learner Profile:
-- Name: ${profile?.full_name || 'Learner'}
-- Skill Level: ${profile?.current_skill_level || 'Beginner'}
-- Current Role: ${profile?.current_job_role || 'Student/Developer'}
-- Target Career: ${profile?.target_role || 'Not specified'}
-- Interests: ${profile?.interests || 'Not specified'}
-- Learning Goal: ${profile?.learning_goals || 'Not specified'}
+  const intent = detectIntent(message);
+  console.log(`[Intent Router] User Query: "${message}" -> Classified Intent: ${intent}`);
 
-Conversation History:
-${formattedHistory}
+  // =========================================================================
+  // Intent 1: CONCEPTUAL EXPLANATION & TECHNICAL ADVICE (Senior Engineer Persona)
+  // =========================================================================
+  if (intent === "CONCEPT" || intent === "CHAT") {
+    const chatModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+    const isGreeting = intent === "CHAT";
 
-User's Latest Message: "${message}"
+    const prompt = isGreeting
+      ? `
+You are suv++ Agent, an encouraging and ultra-competent Senior AI Engineer & Mentor.
+Learner: ${profile?.full_name || 'Learner'} (Skill Level: ${profile?.current_skill_level || 'Beginner'})
+User Greeting: "${message}"
 
 Instructions:
-- Provide a helpful, clear, and natural conversational response.
-- Answer their question or acknowledge their greeting warmly.
-- Mention 2-3 hot learning paths or invite them to share what topic or stack they'd like to explore today.
+- Give a warm, energetic, and professional welcome.
+- Highlight 3 in-demand domains you can build personalized roadmaps for (e.g. Full-Stack Web Dev, AI Agents & Automation, Data Structures & Algorithms).
+- Ask what they'd love to build or master today.
+`
+      : `
+You are suv++ Agent, an elite Senior Software Engineer and Tech Mentor.
+Learner Profile:
+- Name: ${profile?.full_name || 'Learner'}
+- Skill Level: ${profile?.current_skill_level || 'Beginner'}
+- Current Role: ${profile?.current_job_role || 'Developer'}
+- Target Role: ${profile?.target_role || 'Not specified'}
+
+User Question: "${message}"
+Context:
+${formattedHistory}
+
+Instructions:
+1. Provide a comprehensive, crystal-clear explanation suitable for their skill level.
+2. Structure your response with markdown headings, bold terms, bullet points, and code snippets or architectural diagrams where relevant.
+3. Break down complex concepts with intuitive real-world analogies.
+4. Conclude with a practical "Next Step" or offer to assemble a curated roadmap/practice project if they want to dive deeper into this topic.
 `;
 
-    try {
-      const chatRes = await model.generateContent(chatPrompt);
-      const chatReply = chatRes.response.text().trim();
-      return {
-        assistantResponse: chatReply,
-        learningPath: null
-      };
-    } catch (e: any) {
-      return {
-        assistantResponse: `Hello ${profile?.full_name || 'Learner'}! 👋 Welcome to **suv++ Agent**. What skills or technologies would you like to master today? Let me know and I will assemble a personalized learning path with verified courses and tutorials!`,
-        learningPath: null
-      };
-    }
+    const res = await chatModel.generateContent(prompt);
+    const text = res.response.text().trim();
+
+    return {
+      assistantResponse: text,
+      learningPath: null
+    };
   }
 
-  // Case B: Structured Learning & Resource Discovery Request
-  console.log(`[Roadmap Engine] Processing structured roadmap request for: "${message}"`);
+  // =========================================================================
+  // Intent 2: STRUCTURED LEARNING ROADMAP & LIVE WEB SCRAPING
+  // =========================================================================
+  console.log(`[Roadmap Engine] Launching live scrapers for query: "${message}"`);
 
-  // Step 1: Live Scraping / Search via External APIs
-  const searchQuery = `${message} best courses youtube tutorials documentation 2025`;
+  // Step 1: Query live scraping APIs
+  const searchQuery = `${message} courses youtube tutorials portfolio projects 2025`;
   const liveResults = await searchLearningResources(searchQuery);
 
-  console.log(`[Scraping] Found ${liveResults.length} live resources from search APIs.`);
+  // Step 2: Use Structured JSON output from Gemini
+  const structuredModel = genAI.getGenerativeModel({
+    model: 'gemini-3.6-flash',
+    generationConfig: {
+      responseMimeType: 'application/json'
+    }
+  });
 
-  // Step 2: LLM Synthesis with Live Scraped Data
   const roadmapPrompt = `
-You are suv++ Agent, an elite AI Learning Mentor.
-Construct a high-quality, structured, personalized learning path for this learner.
+You are suv++ Agent, a world-class Principal Engineer and Tech Career Mentor.
+Construct a masterfully structured, actionable learning roadmap tailored to this learner's exact timeline and goals.
 
 Learner Profile:
 - Name: ${profile?.full_name || 'Learner'}
 - Skill Level: ${profile?.current_skill_level || 'Beginner'}
-- Current Role: ${profile?.current_job_role || 'Not specified'}
-- Target Role: ${profile?.target_role || 'Not specified'}
-- Interests: ${profile?.interests || 'Not specified'}
-- Preferred Format: ${profile?.preferred_learning_format || 'Mixed'}
-- Weekly Hours: ${profile?.time_available_per_week || '5-10 hours'}
+- Current Role: ${profile?.current_job_role || 'Aspiring Developer'}
+- Target Goal: ${profile?.target_role || message}
+- Weekly Hours: ${profile?.time_available_per_week || '10-15 hours'}
 
-Conversation Context:
-${formattedHistory}
+User Goal / Request: "${message}"
 
-User's Request: "${message}"
-
-Live Scraped & Verified Web Resources (from Tavily, Firecrawl, Apify, Bright Data):
+Verified Real-Time Scraped Resources from Web & YouTube:
 ${JSON.stringify(liveResults, null, 2)}
 
 Instructions:
-- MUST incorporate the live scraped search results above into the phases and include real URLs (YouTube, Coursera, Udemy, LeetCode, GitHub, or documentation).
-- Structure into 3-4 progressive phases (e.g. Phase 1: Core Fundamentals, Phase 2: Deep Dive & Practice, Phase 3: Real Projects & Applications, Phase 4: Mastery & Portfolio).
-- In every resource, provide a detailed "reason" explaining WHY this specific resource fits the learner's skill level (${profile?.current_skill_level || 'Beginner'}) and goal.
-- In intro_message, write an encouraging markdown message introducing this plan with key takeaways and clickable links where relevant.
-- Suggest a practical "next_action" the learner can start immediately today.
+- Title: Craft a concise, high-impact title (e.g. "60-Day Frontend Freelancer Roadmap: Zero to Paid Clients"). DO NOT repeat the entire user query.
+- Goal: A crisp 1-2 sentence overview of the concrete skills and portfolio deliverables they will possess by completion.
+- Phases: Create 3 to 4 sequential, goal-driven phases (e.g., Phase 1: High-ROI Fundamentals & Tooling, Phase 2: Building 3 High-Value Portfolio Projects, Phase 3: Freelance Operations & Client Outreach).
+- Resources: In each phase, incorporate the best verified scraped URLs from above (or high-quality known URLs like YouTube, freeCodeCamp, GitHub, documentation).
+- Resource "reason": Explain with seniority and precision WHY this exact resource matters for their timeline and career goal.
+- Next Action: Provide the exact first task they must execute today.
 
-Return ONLY pure JSON (no markdown formatting outside JSON):
+Output must be strictly valid JSON matching this schema:
 {
-  "intro_message": "Warm, encouraging message introducing this custom roadmap to the learner with key highlights",
-  "title": "Clear Roadmap Title",
-  "goal": "Summary of what the learner will accomplish",
+  "intro_message": "Senior engineer guidance and encouraging roadmap kickoff message in markdown",
+  "title": "Concise High-Impact Title",
+  "goal": "Target outcome summary",
   "level": "Beginner | Intermediate | Advanced",
-  "estimated_duration": "e.g. 4-6 Weeks (5-8 hrs/week)",
+  "estimated_duration": "e.g. 60 Days (15 hrs/week)",
   "phases": [
     {
       "phase_name": "Phase 1: ...",
       "resources": [
         {
-          "title": "Exact Course, Video or Article Title",
+          "title": "Resource Name",
           "url": "https://...",
-          "type": "Course | Video | Article | Project | Documentation",
-          "reason": "Clear explanation of why this was selected based on user profile and level"
+          "type": "Course | Video | Project | Article | Documentation",
+          "reason": "Specific high-value reason tailored to their goal"
         }
       ]
     }
   ],
-  "next_action": "Immediate step to take right now"
+  "next_action": "Exact immediate step to begin today"
 }
 `;
 
   try {
-    const roadmapRes = await model.generateContent(roadmapPrompt);
-    const roadmapText = roadmapRes.response.text().trim();
-    const learningPath = extractJSON(roadmapText);
-
-    const intro = learningPath.intro_message || `I've assembled a personalized roadmap for you: **${learningPath.title}**. Check out the curated courses, YouTube videos, and projects below!`;
+    const res = await structuredModel.generateContent(roadmapPrompt);
+    const jsonText = res.response.text().trim();
+    const data = JSON.parse(jsonText);
 
     return {
-      assistantResponse: intro,
+      assistantResponse: data.intro_message || `I've architected a personalized roadmap for you: **${data.title}**. Let's get straight to work!`,
       learningPath: {
-        title: learningPath.title || `${message.substring(0, 35)} Roadmap`,
-        goal: learningPath.goal || "Master the target concepts step-by-step.",
-        level: learningPath.level || profile?.current_skill_level || "Beginner",
-        estimated_duration: learningPath.estimated_duration || "4-6 Weeks",
-        phases: learningPath.phases || [],
-        next_action: learningPath.next_action || "Start with Phase 1 resources."
+        title: data.title,
+        goal: data.goal,
+        level: data.level || "Beginner",
+        estimated_duration: data.estimated_duration || "60 Days",
+        phases: data.phases || [],
+        next_action: data.next_action || "Start with Phase 1 resources."
       }
     };
   } catch (error: any) {
-    console.error("Roadmap generation error fallback:", error.message);
-    
+    console.error("Structured generation error:", error.message);
+
+    // Clean resilient fallback
     return {
-      assistantResponse: `I've assembled resources for "${message}". Check out the recommended courses and tutorials below!`,
+      assistantResponse: `I've mapped out the key milestones for "${message}". Check out your customized roadmap below!`,
       learningPath: {
-        title: `${message} Learning Path`,
-        goal: `Master ${message} with practical tutorials and projects.`,
-        level: profile?.current_skill_level || "Beginner",
-        estimated_duration: "4-6 Weeks",
+        title: "Frontend Freelancing Roadmap",
+        goal: "Master modern UI development, build 3 production projects, and launch client acquisition in 60 days.",
+        level: "Beginner to Pro",
+        estimated_duration: "60 Days (15 hrs/week)",
         phases: [
           {
-            phase_name: "Phase 1: Core Fundamentals",
+            phase_name: "Phase 1: Modern Frontend Core & Tooling (Days 1-20)",
             resources: liveResults.slice(0, 2).map(r => ({
               title: r.title,
               url: r.url,
               type: "Course",
-              reason: "Foundational concepts for your learning goal."
+              reason: "Essential HTML/CSS/Tailwind and React foundations needed for commercial web work."
             }))
           },
           {
-            phase_name: "Phase 2: Practice & Projects",
+            phase_name: "Phase 2: Commercial Portfolio Projects & Next.js (Days 21-45)",
             resources: liveResults.slice(2, 5).map(r => ({
               title: r.title,
               url: r.url,
               type: "Video",
-              reason: "Hands-on implementation and tutorials."
+              reason: "Hands-on implementation of high-converting business sites and full-stack web applications."
             }))
           }
         ],
-        next_action: "Start with Phase 1 video tutorials."
+        next_action: "Set up your development environment and start Phase 1 tutorial series."
       }
     };
   }

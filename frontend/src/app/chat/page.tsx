@@ -93,9 +93,13 @@ export default function Chat() {
     setLoading(true);
     setStatusStep("thinking");
 
-    // Clean backend base URL (remove trailing slashes)
-    const rawUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4000";
-    const backendUrl = rawUrl.trim().replace(/\/+$/, "");
+    // Clean backend base URL (handle missing https:// and trailing slashes)
+    let rawUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4000";
+    rawUrl = rawUrl.trim().replace(/\/+$/, "");
+    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+      rawUrl = "https://" + rawUrl;
+    }
+    const backendUrl = rawUrl;
 
     try {
       console.log(`[API Call] Sending chat to: ${backendUrl}/api/chat`);

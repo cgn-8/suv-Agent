@@ -27,7 +27,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.get('/', (req, res) => {
-  res.send('suv++ Agent Backend API is live and operational!');
+  res.send('suv++ Agent Backend API is live and operational with multi-scraper engine!');
 });
 
 app.get('/api/health', (req, res) => {
@@ -36,6 +36,8 @@ app.get('/api/health', (req, res) => {
     geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
     tavilyKeyConfigured: !!process.env.TAVILY_API_KEY,
     firecrawlKeyConfigured: !!process.env.FIRECRAWL_API_KEY,
+    apifyKeyConfigured: !!(process.env.APIFY_API_KEY || process.env.APIFY_TOKEN),
+    brightDataKeyConfigured: !!process.env.BRIGHTDATA_API_KEY,
     timestamp: new Date().toISOString()
   });
 });
@@ -118,7 +120,7 @@ app.post('/api/chat', async (req, res) => {
       console.warn("Could not record user message in DB:", err);
     }
 
-    // 5. Generate learning path via AI with live scraping and conversational logic
+    // 5. Generate learning path via AI with live multi-scraping and conversational logic
     const { assistantResponse, learningPath } = await generateLearningPath(message, profile, history);
 
     // 6. Save assistant message
@@ -164,10 +166,9 @@ app.post('/api/chat', async (req, res) => {
 
   } catch (error: any) {
     console.error('Chat API Error:', error);
-    // Graceful 200 response with helpful fallback message so frontend never crashes
     res.json({
       sessionId: sessionId || 'temp-' + Date.now(),
-      reply: `I analyzed your request for "${message}". To get started immediately, explore the official Next.js documentation and LangChain tutorials. Feel free to ask more specific questions about each module!`,
+      reply: `I analyzed your request for "${message}". To get started immediately, explore the official documentation and top tutorials. Feel free to ask more specific questions about each module!`,
       learningPath: null,
       pathId: null,
       warning: error.message
